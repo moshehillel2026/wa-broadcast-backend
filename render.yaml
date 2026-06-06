@@ -1,0 +1,109 @@
+# render.yaml — Render Infrastructure-as-Code
+#
+# Defines TWO services that share ONE Redis instance:
+#  1. wa-broadcast-api    → Express API server (Web Service)
+#  2. wa-broadcast-worker → BullMQ workers (Background Worker)
+#  3. wa-redis            → Redis Key Value store
+#
+# Deploy: connect your GitHub repo to Render, it reads this file automatically.
+# Docs: https://render.com/docs/infrastructure-as-code
+
+services:
+  # ─── Express API Server ──────────────────────────────────────────────────
+  - type: web
+    name: wa-broadcast-api
+    env: node
+    buildCommand: npm install
+    startCommand: npm start
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: wa-redis
+          property: connectionString
+      # Set these manually in Render dashboard (sensitive secrets):
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_PHONE_NUMBER_ID
+        sync: false
+      - key: META_WABA_ID
+        sync: false
+      - key: META_WEBHOOK_VERIFY_TOKEN
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: WP_JWT_SECRET
+        sync: false
+      - key: WP_SITE_URL
+        sync: false
+      - key: META_API_VERSION
+        value: v19.0
+
+  # ─── BullMQ Background Worker ─────────────────────────────────────────────
+  - type: worker
+    name: wa-broadcast-worker
+    env: node
+    buildCommand: npm install
+    startCommand: node src/workers/broadcastWorker.js
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: wa-redis
+          property: connectionString
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_PHONE_NUMBER_ID
+        sync: false
+      - key: META_WABA_ID
+        sync: false
+      - key: META_APP_SECRET
+        sync: false
+      - key: WP_JWT_SECRET
+        sync: false
+      - key: WP_SITE_URL
+        sync: false
+      - key: META_API_VERSION
+        value: v19.0
+      - key: WORKER_CONCURRENCY
+        value: 5
+
+  # ─── Webhook Worker ────────────────────────────────────────────────────────
+  - type: worker
+    name: wa-webhook-worker
+    env: node
+    buildCommand: npm install
+    startCommand: node src/workers/webhookWorker.js
+    autoDeploy: true
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: REDIS_URL
+        fromService:
+          type: redis
+          name: wa-redis
+          property: connectionString
+      - key: META_ACCESS_TOKEN
+        sync: false
+      - key: META_PHONE_NUMBER_ID
+        sync: false
+      - key: WP_JWT_SECRET
+        sync: false
+      - key: WP_SITE_URL
+        sync: false
+
+# ─── Redis Key Value Instance ─────────────────────────────────────────────────
+databases:
+  - type: redis
+    name: wa-redis
+    maxmemoryPolicy: noeviction   # BullMQ requires noeviction (never drops job data)
+    plan: starter                  # Upgrade to standard for production workloads
